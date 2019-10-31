@@ -2,6 +2,8 @@
 
 (in-package #:cl-inference)
 
+(defconstant TRUE t)
+(defconstant FALSE nil)
 
 (defvar *operators* '())
 
@@ -19,7 +21,9 @@
   (first expression))
 
 (defun operants (expression)
-  (rest expression))
+  (if (variable-p expression)
+      nil
+      (rest expression)))
 
 (defun lhs (expression)
   (first (operants expression)))
@@ -54,7 +58,9 @@
 	 (list ',operator ,@operants))
 
        (defun ,test-f-name (formula)
-	 (and (eq (operator formula) ',operator)
+	 (and (not (variable-p formula))
+	      (eq (operator formula) ',operator)
+	      (formula-p formula)
 	      (= (list-length (operants formula)) ,(list-length operants))))
 
        (register-operator ',operator))))
@@ -65,7 +71,37 @@
 (define-operator imply => :binary)
 (define-operator biconditional  <=> :binary)
 
+(defmacro define-replacement (name &key predicate replacement)
+  (let ((replace-f-name (alexandria:symbolicate 'replace- name))
+	(subs-f-name (alexandria:symbolicate 'substitute- name)))
+    `(progn
+       (defun ,replace-f-name (expression)
+	 (if (,predicate expression)
+	     ,replacement
+	     expression))
+       
+       (defun ,subs-f-name (expression)
+	 (let ((rv (,replace-f-name expression)))
+	   (dolist (operant (operants rv))
+	     (nsubstitute (,subs-f-name operant) operant rv))
+	   rv)))))
 
+(define-replacement imply
+    :predicate imply-p
+    :replacement
+    (make-disjunction
+     (make-negation (lhs expression))
+     (rhs expression)))
+
+(define-replacement biconditional
+    :predicate biconditional-p
+    :replacement
+    (make-conjunction
+       (make-imply (lhs expression)
+		   (rhs expression))
+       (make-imply (rhs expression)
+		   (lhs expression))))
 
 
 (defparameter *test-and* '(and A B))
+(defparameter *test-imply* '(=> A (=> B C)))
